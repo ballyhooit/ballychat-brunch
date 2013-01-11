@@ -153,9 +153,24 @@ window.require.register("test/views/home-page-view-test", function(exports, requ
   });
   
 });
+window.require.register("test/views/sidebar-view-test", function(exports, require, module) {
+  var SidebarView;
+
+  SidebarView = require('views/sidebar-view');
+
+  describe('SidebarView', function() {
+    return beforeEach(function() {
+      return this.view = new SidebarView();
+    });
+  });
+  
+});
 var hasFilterer = window.brunch && window.brunch.test && window.brunch.test.filterer;
 var valid = hasFilterer ? window.brunch.test.filterer('test/views/header-view-test') : true;
 if (valid) window.require('test/views/header-view-test');
 var hasFilterer = window.brunch && window.brunch.test && window.brunch.test.filterer;
 var valid = hasFilterer ? window.brunch.test.filterer('test/views/home-page-view-test') : true;
 if (valid) window.require('test/views/home-page-view-test');
+var hasFilterer = window.brunch && window.brunch.test && window.brunch.test.filterer;
+var valid = hasFilterer ? window.brunch.test.filterer('test/views/sidebar-view-test') : true;
+if (valid) window.require('test/views/sidebar-view-test');

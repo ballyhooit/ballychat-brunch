@@ -10784,8 +10784,7 @@ if ( typeof define === "function" && define.amd && define.amd.jQuery ) {
 
   });
 
-}).call(this);
-;
+}).call(this);;
 //     Backbone.js 0.9.9
 
 //     (c) 2010-2012 Jeremy Ashkenas, DocumentCloud Inc.
@@ -12318,8 +12317,7 @@ if ( typeof define === "function" && define.amd && define.amd.jQuery ) {
     throw new Error('A "url" property or function must be specified');
   };
 
-}).call(this);
-;
+}).call(this);;
 /* ===================================================
  * bootstrap-transition.js v2.2.2
  * http://twitter.github.com/bootstrap/javascript.html#transitions
@@ -16839,6 +16837,420 @@ require.define({
   }
 });
 ;
+(function(global){
+
+  /*
+  Channels
+
+  delivery.connect
+  file.load
+
+  send.start
+  send.success
+  send.error
+
+  receive.start
+  receive.success
+  receive.error
+  */
+  var imageFilter = /^(image\/gif|image\/jpeg|image\/png|image\/svg\+xml|image\/tiff)/i,
+      pubSub;
+  
+  /********************************/
+  /****        PUBSUB     *********/
+  /********************************/
+  function PubSub(){
+    this.channels = {};
+  };
+
+  PubSub.prototype.subscribe = function(channel, fn){
+    if (this.channels[channel] === undefined) {
+      this.channels[channel] = [fn];
+    }else{
+      this.channels[channel].push(fn);
+    };
+  };
+
+  PubSub.prototype.publish = function(channel,obj){
+    var cnl = this.channels[channel];
+    var numChannels = (cnl === undefined) ? 0 : cnl.length;
+    for (var i = 0; i < numChannels; i++) {
+      cnl[i](obj);
+    };
+  };
+
+  /********************************/
+  /****        FilePackage    *****/
+  /********************************/
+  function FilePackage(file,receiving){
+    _this = this;
+    this.name = file.name;
+    this.size = file.size;
+    
+    if(receiving){
+      this.uid = file.uid;
+      this.isText = file.isText;
+      this.mimeType = file.mimeType;
+      this.data = file.data;
+      this.dataURLPrefix = file.prefix;
+      pubSub.publish('receive.success',this);
+    }else{
+      //Sending a file.
+      this.uid = this.getUID();
+      this.reader = new FileReader();
+    
+      this.reader.onerror = function(obj){};
+
+      this.reader.onload = function(){
+        _this.base64Data = _this.reader.result;
+        _this.prepBatch();
+      };
+
+      this.reader.readAsDataURL(file);
+    };
+  };
+
+
+  FilePackage.prototype.getUID = function(){
+    //fix this
+    return this.name + this.size + (new Date()).getTime();  
+  };
+
+  FilePackage.prototype.prepBatch = function(){
+    //replace 'data:image/gif;base64,' with ''
+    this.data = this.base64Data.replace(/^[^,]*,/,'');
+    this.batch = {
+      uid: this.uid,
+      name: this.name,
+      size: this.size,
+      data: this.data
+    };
+    pubSub.publish('file.load',this);
+  };
+
+  FilePackage.prototype.isImage = function(){
+    return imageFilter.test(this.mimeType);
+  };
+
+  FilePackage.prototype.isText = function(){
+    return this.isText;
+  }
+
+  FilePackage.prototype.text = function(){
+    return this.data;
+  }
+
+  FilePackage.prototype.dataURL = function(){
+    return this.dataURLPrefix + this.data;
+  };
+
+  /********************************/
+  /****        DELIVERY     *******/
+  /********************************/
+  function Delivery(socket){
+    this.socket = socket;
+    this.sending = {};
+    this.receiving = {};
+    this.connected = false;
+    this.subscribe();
+    this.connect();
+  };
+
+  Delivery.prototype.subscribe = function(){
+    var _this = this;
+    pubSub.subscribe('file.load',function(filePackage){
+      _this.socket.emit('send.start',filePackage.batch);
+    });
+
+    pubSub.subscribe('receive.success',function(filePackage){
+      _this.socket.emit('send.success',filePackage.uid);
+
+    });
+
+    //Socket Subscriptions
+    this.socket.on('send.success',function(uid){
+      pubSub.publish('send.success',_this.sending[uid]);
+      delete _this.sending[uid];    
+    });
+
+    this.socket.on('receive.start',function(file){
+      pubSub.publish('receive.start',file.uid);
+      var filePackage = new FilePackage(file,true);
+      _this.receiving[file.uid] = filePackage;
+      
+    });
+
+
+  };
+
+  Delivery.prototype.connect = function(){
+    var _this = this;
+    this.socket.on('delivery.connect',function(){
+      _this.connected = true;
+      pubSub.publish('delivery.connect', _this);
+    });
+    this.socket.emit('delivery.connecting','');
+  };
+
+  Delivery.prototype.on = function(evt,fn){
+    if (evt === 'delivery.connect' && this.connected) {
+      return fn(this); 
+    };
+    pubSub.subscribe(evt,fn);    
+  };
+
+  Delivery.prototype.off = function(evt){
+    throw "Delivery.off() has not yet been implemented.";
+  };
+
+  Delivery.prototype.send = function(file){
+    var filePackage = new FilePackage(file);
+    this.sending[filePackage.uid] = filePackage;
+    return filePackage.uid;
+  };
+
+
+
+  pubSub = new PubSub();
+
+  window.Delivery = Delivery;
+
+})(window);
+
+
+/*
+todo: server
+Receive batch & send batch
+batch should send DataURL prefix
+
+*/;
+
+//     keymaster.js
+//     (c) 2011-2012 Thomas Fuchs
+//     keymaster.js may be freely distributed under the MIT license.
+
+;(function(global){
+  var k,
+    _handlers = {},
+    _mods = { 16: false, 18: false, 17: false, 91: false },
+    _scope = 'all',
+    // modifier keys
+    _MODIFIERS = {
+      '⇧': 16, shift: 16,
+      '⌥': 18, alt: 18, option: 18,
+      '⌃': 17, ctrl: 17, control: 17,
+      '⌘': 91, command: 91
+    },
+    // special keys
+    _MAP = {
+      backspace: 8, tab: 9, clear: 12,
+      enter: 13, 'return': 13,
+      esc: 27, escape: 27, space: 32,
+      left: 37, up: 38,
+      right: 39, down: 40,
+      del: 46, 'delete': 46,
+      home: 36, end: 35,
+      pageup: 33, pagedown: 34,
+      ',': 188, '.': 190, '/': 191,
+      '`': 192, '-': 189, '=': 187,
+      ';': 186, '\'': 222,
+      '[': 219, ']': 221, '\\': 220
+    },
+    _downKeys = [];
+
+  for(k=1;k<20;k++) _MODIFIERS['f'+k] = 111+k;
+
+  // IE doesn't support Array#indexOf, so have a simple replacement
+  function index(array, item){
+    var i = array.length;
+    while(i--) if(array[i]===item) return i;
+    return -1;
+  }
+
+  // handle keydown event
+  function dispatch(event, scope){
+    var key, handler, k, i, modifiersMatch;
+    key = event.keyCode;
+
+    if (index(_downKeys, key) == -1) {
+        _downKeys.push(key);
+    }
+
+    // if a modifier key, set the key.<modifierkeyname> property to true and return
+    if(key == 93 || key == 224) key = 91; // right command on webkit, command on Gecko
+    if(key in _mods) {
+      _mods[key] = true;
+      // 'assignKey' from inside this closure is exported to window.key
+      for(k in _MODIFIERS) if(_MODIFIERS[k] == key) assignKey[k] = true;
+      return;
+    }
+
+    // see if we need to ignore the keypress (filter() can can be overridden)
+    // by default ignore key presses if a select, textarea, or input is focused
+    if(!assignKey.filter.call(this, event)) return;
+
+    // abort if no potentially matching shortcuts found
+    if (!(key in _handlers)) return;
+
+    // for each potential shortcut
+    for (i = 0; i < _handlers[key].length; i++) {
+      handler = _handlers[key][i];
+
+      // see if it's in the current scope
+      if(handler.scope == scope || handler.scope == 'all'){
+        // check if modifiers match if any
+        modifiersMatch = handler.mods.length > 0;
+        for(k in _mods)
+          if((!_mods[k] && index(handler.mods, +k) > -1) ||
+            (_mods[k] && index(handler.mods, +k) == -1)) modifiersMatch = false;
+        // call the handler and stop the event if neccessary
+        if((handler.mods.length == 0 && !_mods[16] && !_mods[18] && !_mods[17] && !_mods[91]) || modifiersMatch){
+          if(handler.method(event, handler)===false){
+            if(event.preventDefault) event.preventDefault();
+              else event.returnValue = false;
+            if(event.stopPropagation) event.stopPropagation();
+            if(event.cancelBubble) event.cancelBubble = true;
+          }
+        }
+      }
+    }
+  };
+
+  // unset modifier keys on keyup
+  function clearModifier(event){
+    var key = event.keyCode, k,
+        i = index(_downKeys, key);
+
+    // remove key from _downKeys
+    if (i >= 0) {
+        _downKeys.splice(i, 1);
+    }
+
+    if(key == 93 || key == 224) key = 91;
+    if(key in _mods) {
+      _mods[key] = false;
+      for(k in _MODIFIERS) if(_MODIFIERS[k] == key) assignKey[k] = false;
+    }
+  };
+
+  function resetModifiers() {
+    for(k in _mods) _mods[k] = false;
+    for(k in _MODIFIERS) assignKey[k] = false;
+  }
+
+  // parse and assign shortcut
+  function assignKey(key, scope, method){
+    var keys, mods, i, mi;
+    if (method === undefined) {
+      method = scope;
+      scope = 'all';
+    }
+    key = key.replace(/\s/g,'');
+    keys = key.split(',');
+
+    if((keys[keys.length-1])=='')
+      keys[keys.length-2] += ',';
+    // for each shortcut
+    for (i = 0; i < keys.length; i++) {
+      // set modifier keys if any
+      mods = [];
+      key = keys[i].split('+');
+      if(key.length > 1){
+        mods = key.slice(0,key.length-1);
+        for (mi = 0; mi < mods.length; mi++)
+          mods[mi] = _MODIFIERS[mods[mi]];
+        key = [key[key.length-1]];
+      }
+      // convert to keycode and...
+      key = key[0]
+      key = _MAP[key] || key.toUpperCase().charCodeAt(0);
+      // ...store handler
+      if (!(key in _handlers)) _handlers[key] = [];
+      _handlers[key].push({ shortcut: keys[i], scope: scope, method: method, key: keys[i], mods: mods });
+    }
+  };
+
+  // Returns true if the key with code 'keyCode' is currently down
+  // Converts strings into key codes.
+  function isPressed(keyCode) {
+      if (typeof(keyCode)=='string') {
+          if (keyCode.length == 1) {
+              keyCode = (keyCode.toUpperCase()).charCodeAt(0);
+          } else {
+              return false;
+          }
+      }
+      return index(_downKeys, keyCode) != -1;
+  }
+
+  function getPressedKeyCodes() {
+      return _downKeys.slice(0);
+  }
+
+  function filter(event){
+    var tagName = (event.target || event.srcElement).tagName;
+    // ignore keypressed in any elements that support keyboard data input
+    return !(tagName == 'INPUT' || tagName == 'SELECT' || tagName == 'TEXTAREA');
+  }
+
+  // initialize key.<modifier> to false
+  for(k in _MODIFIERS) assignKey[k] = false;
+
+  // set current scope (default 'all')
+  function setScope(scope){ _scope = scope || 'all' };
+  function getScope(){ return _scope || 'all' };
+
+  // delete all handlers for a given scope
+  function deleteScope(scope){
+    var key, handlers, i;
+
+    for (key in _handlers) {
+      handlers = _handlers[key];
+      for (i = 0; i < handlers.length; ) {
+        if (handlers[i].scope === scope) handlers.splice(i, 1);
+        else i++;
+      }
+    }
+  };
+
+  // cross-browser events
+  function addEvent(object, event, method) {
+    if (object.addEventListener)
+      object.addEventListener(event, method, false);
+    else if(object.attachEvent)
+      object.attachEvent('on'+event, function(){ method(window.event) });
+  };
+
+  // set the handlers globally on document
+  addEvent(document, 'keydown', function(event) { dispatch(event, _scope) }); // Passing _scope to a callback to ensure it remains the same by execution. Fixes #48
+  addEvent(document, 'keyup', clearModifier);
+
+  // reset modifiers to false whenever the window is (re)focused.
+  addEvent(window, 'focus', resetModifiers);
+
+  // store previously defined key
+  var previousKey = global.key;
+
+  // restore previously defined key and return reference to our key object
+  function noConflict() {
+    var k = global.key;
+    global.key = previousKey;
+    return k;
+  }
+
+  // set window.key and window.key.set/get/deleteScope, and the default filter
+  global.key = assignKey;
+  global.key.setScope = setScope;
+  global.key.getScope = getScope;
+  global.key.deleteScope = deleteScope;
+  global.key.filter = filter;
+  global.key.isPressed = isPressed;
+  global.key.getPressedKeyCodes = getPressedKeyCodes;
+  global.key.noConflict = noConflict;
+
+  if(typeof module !== 'undefined') module.exports = key;
+
+})(this);;
 /**
  * @license
  * Lo-Dash 1.0.0-rc.3 (Custom Build) <http://lodash.com>
@@ -20728,6 +21140,738 @@ require.define({
     window._ = lodash;
   }
 }(this));;
+/*! nanoScrollerJS - v0.6.9
+* http://jamesflorentino.github.com/nanoScrollerJS/
+* Copyright (c) 2012 James Florentino; Licensed MIT */
+
+
+(function($, window, document) {
+  "use strict";
+
+  var BROWSER_IS_IE7, BROWSER_SCROLLBAR_WIDTH, DOMSCROLL, DOWN, DRAG, KEYDOWN, KEYUP, MOUSEDOWN, MOUSEMOVE, MOUSEUP, MOUSEWHEEL, NanoScroll, PANEDOWN, RESIZE, SCROLL, SCROLLBAR, TOUCHMOVE, UP, WHEEL, defaults, getBrowserScrollbarWidth;
+  defaults = {
+    /**
+      a classname for the pane element.
+      @property paneClass
+      @type String
+      @default 'pane'
+    */
+
+    paneClass: 'pane',
+    /**
+      a classname for the slider element.
+      @property sliderClass
+      @type String
+      @default 'slider'
+    */
+
+    sliderClass: 'slider',
+    /**
+      a classname for the content element.
+      @property contentClass
+      @type String
+      @default 'content'
+    */
+
+    contentClass: 'content',
+    /**
+      a setting to enable native scrolling in iOS devices.
+      @property iOSNativeScrolling
+      @type Boolean
+      @default false
+    */
+
+    iOSNativeScrolling: false,
+    /**
+      a setting to prevent the rest of the page being
+      scrolled when user scrolls the `.content` element.
+      @property preventPageScrolling
+      @type Boolean
+      @default false
+    */
+
+    preventPageScrolling: false,
+    /**
+      a setting to disable binding to the resize event.
+      @property disableResize
+      @type Boolean
+      @default false
+    */
+
+    disableResize: false,
+    /**
+      a setting to make the scrollbar always visible.
+      @property alwaysVisible
+      @type Boolean
+      @default false
+    */
+
+    alwaysVisible: false,
+    /**
+      a default timeout for the `flash()` method.
+      @property flashDelay
+      @type Number
+      @default 1500
+    */
+
+    flashDelay: 1500,
+    /**
+      a minimum height for the `.slider` element.
+      @property sliderMinHeight
+      @type Number
+      @default 20
+    */
+
+    sliderMinHeight: 20,
+    /**
+      a maximum height for the `.slider` element.
+      @property sliderMaxHeight
+      @type Number
+      @default null
+    */
+
+    sliderMaxHeight: null
+  };
+  /**
+    @property SCROLLBAR
+    @type String
+    @static
+    @final
+    @private
+  */
+
+  SCROLLBAR = 'scrollbar';
+  /**
+    @property SCROLL
+    @type String
+    @static
+    @final
+    @private
+  */
+
+  SCROLL = 'scroll';
+  /**
+    @property MOUSEDOWN
+    @type String
+    @final
+    @private
+  */
+
+  MOUSEDOWN = 'mousedown';
+  /**
+    @property MOUSEMOVE
+    @type String
+    @static
+    @final
+    @private
+  */
+
+  MOUSEMOVE = 'mousemove';
+  /**
+    @property MOUSEWHEEL
+    @type String
+    @final
+    @private
+  */
+
+  MOUSEWHEEL = 'mousewheel';
+  /**
+    @property MOUSEUP
+    @type String
+    @static
+    @final
+    @private
+  */
+
+  MOUSEUP = 'mouseup';
+  /**
+    @property RESIZE
+    @type String
+    @final
+    @private
+  */
+
+  RESIZE = 'resize';
+  /**
+    @property DRAG
+    @type String
+    @static
+    @final
+    @private
+  */
+
+  DRAG = 'drag';
+  /**
+    @property UP
+    @type String
+    @static
+    @final
+    @private
+  */
+
+  UP = 'up';
+  /**
+    @property PANEDOWN
+    @type String
+    @static
+    @final
+    @private
+  */
+
+  PANEDOWN = 'panedown';
+  /**
+    @property DOMSCROLL
+    @type String
+    @static
+    @final
+    @private
+  */
+
+  DOMSCROLL = 'DOMMouseScroll';
+  /**
+    @property DOWN
+    @type String
+    @static
+    @final
+    @private
+  */
+
+  DOWN = 'down';
+  /**
+    @property WHEEL
+    @type String
+    @static
+    @final
+    @private
+  */
+
+  WHEEL = 'wheel';
+  /**
+    @property KEYDOWN
+    @type String
+    @static
+    @final
+    @private
+  */
+
+  KEYDOWN = 'keydown';
+  /**
+    @property KEYUP
+    @type String
+    @static
+    @final
+    @private
+  */
+
+  KEYUP = 'keyup';
+  /**
+    @property TOUCHMOVE
+    @type String
+    @static
+    @final
+    @private
+  */
+
+  TOUCHMOVE = 'touchmove';
+  /**
+    @property BROWSER_IS_IE7
+    @type Boolean
+    @static
+    @final
+    @private
+  */
+
+  BROWSER_IS_IE7 = window.navigator.appName === 'Microsoft Internet Explorer' && /msie 7./i.test(window.navigator.appVersion) && window.ActiveXObject;
+  /**
+    @property BROWSER_SCROLLBAR_WIDTH
+    @type Number
+    @static
+    @default null
+    @private
+  */
+
+  BROWSER_SCROLLBAR_WIDTH = null;
+  /**
+    Returns browser's native scrollbar width
+    @method getBrowserScrollbarWidth
+    @return {Number} the scrollbar width in pixels
+    @static
+    @private
+  */
+
+  getBrowserScrollbarWidth = function() {
+    var outer, outerStyle, scrollbarWidth;
+    outer = document.createElement('div');
+    outerStyle = outer.style;
+    outerStyle.position = 'absolute';
+    outerStyle.width = '100px';
+    outerStyle.height = '100px';
+    outerStyle.overflow = SCROLL;
+    outerStyle.top = '-9999px';
+    document.body.appendChild(outer);
+    scrollbarWidth = outer.offsetWidth - outer.clientWidth;
+    document.body.removeChild(outer);
+    return scrollbarWidth;
+  };
+  /**
+    @class NanoScroll
+    @param element {HTMLElement|Node} the main element
+    @param options {Object} nanoScroller's options
+    @constructor
+  */
+
+  NanoScroll = (function() {
+
+    function NanoScroll(el, options) {
+      this.el = el;
+      this.options = options;
+      BROWSER_SCROLLBAR_WIDTH || (BROWSER_SCROLLBAR_WIDTH = getBrowserScrollbarWidth());
+      this.$el = $(this.el);
+      this.doc = $(document);
+      this.win = $(window);
+      this.generate();
+      this.createEvents();
+      this.addEvents();
+      this.reset();
+    }
+
+    /**
+      Prevents the rest of the page being scrolled
+      when user scrolls the `.content` element.
+      @method preventScrolling
+      @param event {Event}
+      @param direction {String} Scroll direction (up or down)
+      @private
+    */
+
+
+    NanoScroll.prototype.preventScrolling = function(e, direction) {
+      if (!this.isActive) {
+        return;
+      }
+      if (e.type === DOMSCROLL) {
+        if (direction === DOWN && e.originalEvent.detail > 0 || direction === UP && e.originalEvent.detail < 0) {
+          e.preventDefault();
+        }
+      } else if (e.type === MOUSEWHEEL) {
+        if (!e.originalEvent || !e.originalEvent.wheelDelta) {
+          return;
+        }
+        if (direction === DOWN && e.originalEvent.wheelDelta < 0 || direction === UP && e.originalEvent.wheelDelta > 0) {
+          e.preventDefault();
+        }
+      }
+    };
+
+    /**
+      Updates those nanoScroller properties that
+      are related to current scrollbar position.
+      @method updateScrollValues
+      @private
+    */
+
+
+    NanoScroll.prototype.updateScrollValues = function() {
+      var content;
+      content = this.content;
+      this.maxScrollTop = content.scrollHeight - content.clientHeight;
+      this.contentScrollTop = content.scrollTop;
+      this.maxSliderTop = this.paneHeight - this.sliderHeight;
+      this.sliderTop = this.contentScrollTop * this.maxSliderTop / this.maxScrollTop;
+    };
+
+    /**
+      Creates event related methods
+      @method createEvents
+      @private
+    */
+
+
+    NanoScroll.prototype.createEvents = function() {
+      var _this = this;
+      this.events = {
+        down: function(e) {
+          _this.isBeingDragged = true;
+          _this.offsetY = e.pageY - _this.slider.offset().top;
+          _this.pane.addClass('active');
+          _this.doc.bind(MOUSEMOVE, _this.events[DRAG]).bind(MOUSEUP, _this.events[UP]);
+          return false;
+        },
+        drag: function(e) {
+          _this.sliderY = e.pageY - _this.$el.offset().top - _this.offsetY;
+          _this.scroll();
+          _this.updateScrollValues();
+          if (_this.contentScrollTop >= _this.maxScrollTop) {
+            _this.$el.trigger('scrollend');
+          } else if (_this.contentScrollTop === 0) {
+            _this.$el.trigger('scrolltop');
+          }
+          return false;
+        },
+        up: function(e) {
+          _this.isBeingDragged = false;
+          _this.pane.removeClass('active');
+          _this.doc.unbind(MOUSEMOVE, _this.events[DRAG]).unbind(MOUSEUP, _this.events[UP]);
+          return false;
+        },
+        resize: function(e) {
+          _this.reset();
+        },
+        panedown: function(e) {
+          _this.sliderY = (e.offsetY || e.originalEvent.layerY) - (_this.sliderHeight * 0.5);
+          _this.scroll();
+          _this.events.down(e);
+          return false;
+        },
+        scroll: function(e) {
+          if (_this.isBeingDragged) {
+            return;
+          }
+          _this.updateScrollValues();
+          _this.sliderY = _this.sliderTop;
+          _this.slider.css({
+            top: _this.sliderTop
+          });
+          if (e == null) {
+            return;
+          }
+          if (_this.contentScrollTop >= _this.maxScrollTop) {
+            if (_this.options.preventPageScrolling) {
+              _this.preventScrolling(e, DOWN);
+            }
+            _this.$el.trigger('scrollend');
+          } else if (_this.contentScrollTop === 0) {
+            if (_this.options.preventPageScrolling) {
+              _this.preventScrolling(e, UP);
+            }
+            _this.$el.trigger('scrolltop');
+          }
+        },
+        wheel: function(e) {
+          if (e == null) {
+            return;
+          }
+          _this.sliderY += -e.wheelDeltaY || -e.delta;
+          _this.scroll();
+          return false;
+        }
+      };
+    };
+
+    /**
+      Adds event listeners with jQuery.
+      @method addEvents
+      @private
+    */
+
+
+    NanoScroll.prototype.addEvents = function() {
+      var events;
+      this.removeEvents();
+      events = this.events;
+      if (!this.options.disableResize) {
+        this.win.bind(RESIZE, events[RESIZE]);
+      }
+      this.slider.bind(MOUSEDOWN, events[DOWN]);
+      this.pane.bind(MOUSEDOWN, events[PANEDOWN]).bind("" + MOUSEWHEEL + " " + DOMSCROLL, events[WHEEL]);
+      this.$content.bind("" + SCROLL + " " + MOUSEWHEEL + " " + DOMSCROLL + " " + TOUCHMOVE, events[SCROLL]);
+    };
+
+    /**
+      Removes event listeners with jQuery.
+      @method removeEvents
+      @private
+    */
+
+
+    NanoScroll.prototype.removeEvents = function() {
+      var events;
+      events = this.events;
+      this.win.unbind(RESIZE, events[RESIZE]);
+      this.slider.unbind();
+      this.pane.unbind();
+      this.$content.unbind("" + SCROLL + " " + MOUSEWHEEL + " " + DOMSCROLL + " " + TOUCHMOVE, events[SCROLL]);
+    };
+
+    /**
+      Generates nanoScroller's scrollbar and elements for it.
+      @method generate
+      @chainable
+      @private
+    */
+
+
+    NanoScroll.prototype.generate = function() {
+      var contentClass, cssRule, options, paneClass, sliderClass;
+      options = this.options;
+      paneClass = options.paneClass, sliderClass = options.sliderClass, contentClass = options.contentClass;
+      if (!this.$el.find("" + paneClass).length && !this.$el.find("" + sliderClass).length) {
+        this.$el.append("<div class=\"" + paneClass + "\"><div class=\"" + sliderClass + "\" /></div>");
+      }
+      this.$content = this.$el.children("." + contentClass);
+      this.$content.attr('tabindex', 0);
+      this.content = this.$content[0];
+      this.slider = this.$el.find("." + sliderClass);
+      this.pane = this.$el.find("." + paneClass);
+      if (BROWSER_SCROLLBAR_WIDTH) {
+        cssRule = this.$el.css('direction') === 'rtl' ? {
+          left: -BROWSER_SCROLLBAR_WIDTH
+        } : {
+          right: -BROWSER_SCROLLBAR_WIDTH
+        };
+        this.$el.addClass('has-scrollbar');
+      }
+      if (options.iOSNativeScrolling) {
+        cssRule || (cssRule = {});
+        cssRule.WebkitOverflowScrolling = 'touch';
+      }
+      if (cssRule != null) {
+        this.$content.css(cssRule);
+      }
+      return this;
+    };
+
+    /**
+      @method restore
+      @private
+    */
+
+
+    NanoScroll.prototype.restore = function() {
+      this.stopped = false;
+      this.pane.show();
+      this.addEvents();
+    };
+
+    /**
+      Resets nanoScroller's scrollbar.
+      @method reset
+      @chainable
+      @example
+          $(".nano").nanoScroller();
+    */
+
+
+    NanoScroll.prototype.reset = function() {
+      var content, contentHeight, contentStyle, contentStyleOverflowY, paneBottom, paneHeight, paneOuterHeight, paneTop, sliderHeight;
+      if (!this.$el.find("." + this.options.paneClass).length) {
+        this.generate().stop();
+      }
+      if (this.stopped) {
+        this.restore();
+      }
+      content = this.content;
+      contentStyle = content.style;
+      contentStyleOverflowY = contentStyle.overflowY;
+      if (BROWSER_IS_IE7) {
+        this.$content.css({
+          height: this.$content.height()
+        });
+      }
+      contentHeight = content.scrollHeight + BROWSER_SCROLLBAR_WIDTH;
+      paneHeight = this.pane.outerHeight();
+      paneTop = parseInt(this.pane.css('top'), 10);
+      paneBottom = parseInt(this.pane.css('bottom'), 10);
+      paneOuterHeight = paneHeight + paneTop + paneBottom;
+      sliderHeight = Math.round(paneOuterHeight / contentHeight * paneOuterHeight);
+      if (sliderHeight < this.options.sliderMinHeight) {
+        sliderHeight = this.options.sliderMinHeight;
+      } else if ((this.options.sliderMaxHeight != null) && sliderHeight > this.options.sliderMaxHeight) {
+        sliderHeight = this.options.sliderMaxHeight;
+      }
+      if (contentStyleOverflowY === SCROLL && contentStyle.overflowX !== SCROLL) {
+        sliderHeight += BROWSER_SCROLLBAR_WIDTH;
+      }
+      this.maxSliderTop = paneOuterHeight - sliderHeight;
+      this.contentHeight = contentHeight;
+      this.paneHeight = paneHeight;
+      this.paneOuterHeight = paneOuterHeight;
+      this.sliderHeight = sliderHeight;
+      this.slider.height(sliderHeight);
+      this.events.scroll();
+      this.pane.show();
+      this.isActive = true;
+      if ((content.scrollHeight === content.clientHeight) || (this.pane.outerHeight(true) >= content.scrollHeight && contentStyleOverflowY !== SCROLL)) {
+        //this.pane.hide();
+        this.isActive = false;
+      } else if (this.el.clientHeight === content.scrollHeight && contentStyleOverflowY === SCROLL) {
+        this.slider.hide();
+      } else {
+        this.slider.show();
+      }
+      this.pane.css({
+        opacity: (this.options.alwaysVisible ? 1 : ''),
+        visibility: (this.options.alwaysVisible ? 'visible' : '')
+      });
+      return this;
+    };
+
+    /**
+      @method scroll
+      @private
+      @example
+          $(".nano").nanoScroller({ scroll: 'top' });
+    */
+
+
+    NanoScroll.prototype.scroll = function() {
+      if (!this.isActive) {
+        return;
+      }
+      this.sliderY = Math.max(0, this.sliderY);
+      this.sliderY = Math.min(this.maxSliderTop, this.sliderY);
+      this.$content.scrollTop((this.paneHeight - this.contentHeight + BROWSER_SCROLLBAR_WIDTH) * this.sliderY / this.maxSliderTop * -1);
+      this.slider.css({
+        top: this.sliderY
+      });
+      return this;
+    };
+
+    /**
+      Scroll at the bottom with an offset value
+      @method scrollBottom
+      @param offsetY {Number}
+      @chainable
+      @example
+          $(".nano").nanoScroller({ scrollBottom: value });
+    */
+
+
+    NanoScroll.prototype.scrollBottom = function(offsetY) {
+      if (!this.isActive) {
+        return;
+      }
+      this.reset();
+      this.$content.scrollTop(this.contentHeight - this.$content.height() - offsetY).trigger(MOUSEWHEEL);
+      return this;
+    };
+
+    /**
+      Scroll at the top with an offset value
+      @method scrollTop
+      @param offsetY {Number}
+      @chainable
+      @example
+          $(".nano").nanoScroller({ scrollTop: value });
+    */
+
+
+    NanoScroll.prototype.scrollTop = function(offsetY) {
+      if (!this.isActive) {
+        return;
+      }
+      this.reset();
+      this.$content.scrollTop(+offsetY).trigger(MOUSEWHEEL);
+      return this;
+    };
+
+    /**
+      Scroll to an element
+      @method scrollTo
+      @param node {Node} A node to scroll to.
+      @chainable
+      @example
+          $(".nano").nanoScroller({ scrollTo: $('#a_node') });
+    */
+
+
+    NanoScroll.prototype.scrollTo = function(node) {
+      var fraction, new_slider, offset;
+      if (!this.isActive) {
+        return;
+      }
+      this.reset();
+      offset = $(node).offset().top;
+      if (offset > this.maxSliderTop) {
+        fraction = offset / this.contentHeight;
+        new_slider = this.maxSliderTop * fraction;
+        this.sliderY = new_slider;
+        this.scroll();
+      }
+      return this;
+    };
+
+    /**
+      To stop the operation.
+      This option will tell the plugin to disable all event bindings and hide the gadget scrollbar from the UI.
+      @method stop
+      @chainable
+      @example
+          $(".nano").nanoScroller({ stop: true });
+    */
+
+
+    NanoScroll.prototype.stop = function() {
+      this.stopped = true;
+      this.removeEvents();
+      this.pane.hide();
+      return this;
+    };
+
+    /**
+      To flash the scrollbar gadget for an amount of time defined in plugin settings (defaults to 1,5s).
+      Useful if you want to show the user (e.g. on pageload) that there is more content waiting for him.
+      @method flash
+      @chainable
+      @example
+          $(".nano").nanoScroller({ flash: true });
+    */
+
+
+    NanoScroll.prototype.flash = function() {
+      var _this = this;
+      if (!this.isActive) {
+        return;
+      }
+      this.reset();
+      this.pane.addClass('flashed');
+      setTimeout(function() {
+        _this.pane.removeClass('flashed');
+      }, this.options.flashDelay);
+      return this;
+    };
+
+    return NanoScroll;
+
+  })();
+  $.fn.nanoScroller = function(settings) {
+    return this.each(function() {
+      var options, scrollbar;
+      if (!(scrollbar = this.nanoscroller)) {
+        options = $.extend({}, defaults, settings);
+        this.nanoscroller = scrollbar = new NanoScroll(this, options);
+      }
+      if (settings && typeof settings === "object") {
+        $.extend(scrollbar.options, settings);
+        if (settings.scrollBottom) {
+          return scrollbar.scrollBottom(settings.scrollBottom);
+        }
+        if (settings.scrollTop) {
+          return scrollbar.scrollTop(settings.scrollTop);
+        }
+        if (settings.scrollTo) {
+          return scrollbar.scrollTo(settings.scrollTo);
+        }
+        if (settings.scroll === 'bottom') {
+          return scrollbar.scrollBottom(0);
+        }
+        if (settings.scroll === 'top') {
+          return scrollbar.scrollTop(0);
+        }
+        if (settings.scroll && settings.scroll instanceof $) {
+          return scrollbar.scrollTo(settings.scroll);
+        }
+        if (settings.stop) {
+          return scrollbar.stop();
+        }
+        if (settings.flash) {
+          return scrollbar.flash();
+        }
+      }
+      return scrollbar.reset();
+    });
+  };
+})(jQuery, window, document);;
 /*! Socket.IO.js build:0.9.11, development. Copyright(c) 2011 LearnBoost <dev@learnboost.com> MIT Licensed */
 
 var io = ('undefined' === typeof module ? {} : module.exports);
@@ -24595,4 +25739,584 @@ var swfobject=function(){var D="undefined",r="object",S="Shockwave Flash",W="Sho
   , this
 );
 
+})();;
+//fgnass.github.com/spin.js#v1.2.7
+!function(window, document, undefined) {
+
+  /**
+   * Copyright (c) 2011 Felix Gnass [fgnass at neteye dot de]
+   * Licensed under the MIT license
+   */
+
+  var prefixes = ['webkit', 'Moz', 'ms', 'O'] /* Vendor prefixes */
+    , animations = {} /* Animation rules keyed by their name */
+    , useCssAnimations
+
+  /**
+   * Utility function to create elements. If no tag name is given,
+   * a DIV is created. Optionally properties can be passed.
+   */
+  function createEl(tag, prop) {
+    var el = document.createElement(tag || 'div')
+      , n
+
+    for(n in prop) el[n] = prop[n]
+    return el
+  }
+
+  /**
+   * Appends children and returns the parent.
+   */
+  function ins(parent /* child1, child2, ...*/) {
+    for (var i=1, n=arguments.length; i<n; i++)
+      parent.appendChild(arguments[i])
+
+    return parent
+  }
+
+  /**
+   * Insert a new stylesheet to hold the @keyframe or VML rules.
+   */
+  var sheet = function() {
+    var el = createEl('style', {type : 'text/css'})
+    ins(document.getElementsByTagName('head')[0], el)
+    return el.sheet || el.styleSheet
+  }()
+
+  /**
+   * Creates an opacity keyframe animation rule and returns its name.
+   * Since most mobile Webkits have timing issues with animation-delay,
+   * we create separate rules for each line/segment.
+   */
+  function addAnimation(alpha, trail, i, lines) {
+    var name = ['opacity', trail, ~~(alpha*100), i, lines].join('-')
+      , start = 0.01 + i/lines*100
+      , z = Math.max(1 - (1-alpha) / trail * (100-start), alpha)
+      , prefix = useCssAnimations.substring(0, useCssAnimations.indexOf('Animation')).toLowerCase()
+      , pre = prefix && '-'+prefix+'-' || ''
+
+    if (!animations[name]) {
+      sheet.insertRule(
+        '@' + pre + 'keyframes ' + name + '{' +
+        '0%{opacity:' + z + '}' +
+        start + '%{opacity:' + alpha + '}' +
+        (start+0.01) + '%{opacity:1}' +
+        (start+trail) % 100 + '%{opacity:' + alpha + '}' +
+        '100%{opacity:' + z + '}' +
+        '}', sheet.cssRules.length)
+
+      animations[name] = 1
+    }
+    return name
+  }
+
+  /**
+   * Tries various vendor prefixes and returns the first supported property.
+   **/
+  function vendor(el, prop) {
+    var s = el.style
+      , pp
+      , i
+
+    if(s[prop] !== undefined) return prop
+    prop = prop.charAt(0).toUpperCase() + prop.slice(1)
+    for(i=0; i<prefixes.length; i++) {
+      pp = prefixes[i]+prop
+      if(s[pp] !== undefined) return pp
+    }
+  }
+
+  /**
+   * Sets multiple style properties at once.
+   */
+  function css(el, prop) {
+    for (var n in prop)
+      el.style[vendor(el, n)||n] = prop[n]
+
+    return el
+  }
+
+  /**
+   * Fills in default values.
+   */
+  function merge(obj) {
+    for (var i=1; i < arguments.length; i++) {
+      var def = arguments[i]
+      for (var n in def)
+        if (obj[n] === undefined) obj[n] = def[n]
+    }
+    return obj
+  }
+
+  /**
+   * Returns the absolute page-offset of the given element.
+   */
+  function pos(el) {
+    var o = { x:el.offsetLeft, y:el.offsetTop }
+    while((el = el.offsetParent))
+      o.x+=el.offsetLeft, o.y+=el.offsetTop
+
+    return o
+  }
+
+  var defaults = {
+    lines: 12,            // The number of lines to draw
+    length: 7,            // The length of each line
+    width: 5,             // The line thickness
+    radius: 10,           // The radius of the inner circle
+    rotate: 0,            // Rotation offset
+    corners: 1,           // Roundness (0..1)
+    color: '#000',        // #rgb or #rrggbb
+    speed: 1,             // Rounds per second
+    trail: 100,           // Afterglow percentage
+    opacity: 1/4,         // Opacity of the lines
+    fps: 20,              // Frames per second when using setTimeout()
+    zIndex: 2e9,          // Use a high z-index by default
+    className: 'spinner', // CSS class to assign to the element
+    top: 'auto',          // center vertically
+    left: 'auto',         // center horizontally
+    position: 'relative'  // element position
+  }
+
+  /** The constructor */
+  var Spinner = function Spinner(o) {
+    if (!this.spin) return new Spinner(o)
+    this.opts = merge(o || {}, Spinner.defaults, defaults)
+  }
+
+  Spinner.defaults = {}
+
+  merge(Spinner.prototype, {
+    spin: function(target) {
+      this.stop()
+      var self = this
+        , o = self.opts
+        , el = self.el = css(createEl(0, {className: o.className}), {position: o.position, width: 0, zIndex: o.zIndex})
+        , mid = o.radius+o.length+o.width
+        , ep // element position
+        , tp // target position
+
+      if (target) {
+        target.insertBefore(el, target.firstChild||null)
+        tp = pos(target)
+        ep = pos(el)
+        css(el, {
+          left: (o.left == 'auto' ? tp.x-ep.x + (target.offsetWidth >> 1) : parseInt(o.left, 10) + mid) + 'px',
+          top: (o.top == 'auto' ? tp.y-ep.y + (target.offsetHeight >> 1) : parseInt(o.top, 10) + mid)  + 'px'
+        })
+      }
+
+      el.setAttribute('aria-role', 'progressbar')
+      self.lines(el, self.opts)
+
+      if (!useCssAnimations) {
+        // No CSS animation support, use setTimeout() instead
+        var i = 0
+          , fps = o.fps
+          , f = fps/o.speed
+          , ostep = (1-o.opacity) / (f*o.trail / 100)
+          , astep = f/o.lines
+
+        ;(function anim() {
+          i++;
+          for (var s=o.lines; s; s--) {
+            var alpha = Math.max(1-(i+s*astep)%f * ostep, o.opacity)
+            self.opacity(el, o.lines-s, alpha, o)
+          }
+          self.timeout = self.el && setTimeout(anim, ~~(1000/fps))
+        })()
+      }
+      return self
+    },
+
+    stop: function() {
+      var el = this.el
+      if (el) {
+        clearTimeout(this.timeout)
+        if (el.parentNode) el.parentNode.removeChild(el)
+        this.el = undefined
+      }
+      return this
+    },
+
+    lines: function(el, o) {
+      var i = 0
+        , seg
+
+      function fill(color, shadow) {
+        return css(createEl(), {
+          position: 'absolute',
+          width: (o.length+o.width) + 'px',
+          height: o.width + 'px',
+          background: color,
+          boxShadow: shadow,
+          transformOrigin: 'left',
+          transform: 'rotate(' + ~~(360/o.lines*i+o.rotate) + 'deg) translate(' + o.radius+'px' +',0)',
+          borderRadius: (o.corners * o.width>>1) + 'px'
+        })
+      }
+
+      for (; i < o.lines; i++) {
+        seg = css(createEl(), {
+          position: 'absolute',
+          top: 1+~(o.width/2) + 'px',
+          transform: o.hwaccel ? 'translate3d(0,0,0)' : '',
+          opacity: o.opacity,
+          animation: useCssAnimations && addAnimation(o.opacity, o.trail, i, o.lines) + ' ' + 1/o.speed + 's linear infinite'
+        })
+
+        if (o.shadow) ins(seg, css(fill('#000', '0 0 4px ' + '#000'), {top: 2+'px'}))
+
+        ins(el, ins(seg, fill(o.color, '0 0 1px rgba(0,0,0,.1)')))
+      }
+      return el
+    },
+
+    opacity: function(el, i, val) {
+      if (i < el.childNodes.length) el.childNodes[i].style.opacity = val
+    }
+
+  })
+
+  /////////////////////////////////////////////////////////////////////////
+  // VML rendering for IE
+  /////////////////////////////////////////////////////////////////////////
+
+  /**
+   * Check and init VML support
+   */
+  ;(function() {
+
+    function vml(tag, attr) {
+      return createEl('<' + tag + ' xmlns="urn:schemas-microsoft.com:vml" class="spin-vml">', attr)
+    }
+
+    var s = css(createEl('group'), {behavior: 'url(#default#VML)'})
+
+    if (!vendor(s, 'transform') && s.adj) {
+
+      // VML support detected. Insert CSS rule ...
+      sheet.addRule('.spin-vml', 'behavior:url(#default#VML)')
+
+      Spinner.prototype.lines = function(el, o) {
+        var r = o.length+o.width
+          , s = 2*r
+
+        function grp() {
+          return css(
+            vml('group', {
+              coordsize: s + ' ' + s,
+              coordorigin: -r + ' ' + -r
+            }),
+            { width: s, height: s }
+          )
+        }
+
+        var margin = -(o.width+o.length)*2 + 'px'
+          , g = css(grp(), {position: 'absolute', top: margin, left: margin})
+          , i
+
+        function seg(i, dx, filter) {
+          ins(g,
+            ins(css(grp(), {rotation: 360 / o.lines * i + 'deg', left: ~~dx}),
+              ins(css(vml('roundrect', {arcsize: o.corners}), {
+                  width: r,
+                  height: o.width,
+                  left: o.radius,
+                  top: -o.width>>1,
+                  filter: filter
+                }),
+                vml('fill', {color: o.color, opacity: o.opacity}),
+                vml('stroke', {opacity: 0}) // transparent stroke to fix color bleeding upon opacity change
+              )
+            )
+          )
+        }
+
+        if (o.shadow)
+          for (i = 1; i <= o.lines; i++)
+            seg(i, -2, 'progid:DXImageTransform.Microsoft.Blur(pixelradius=2,makeshadow=1,shadowopacity=.3)')
+
+        for (i = 1; i <= o.lines; i++) seg(i)
+        return ins(el, g)
+      }
+
+      Spinner.prototype.opacity = function(el, i, val, o) {
+        var c = el.firstChild
+        o = o.shadow && o.lines || 0
+        if (c && i+o < c.childNodes.length) {
+          c = c.childNodes[i+o]; c = c && c.firstChild; c = c && c.firstChild
+          if (c) c.opacity = val
+        }
+      }
+    }
+    else
+      useCssAnimations = vendor(s, 'animation')
+  })()
+
+  if (typeof define == 'function' && define.amd)
+    define(function() { return Spinner })
+  else
+    window.Spinner = Spinner
+
+}(window, document);;
+/*!
+ * Tinycon - A small library for manipulating the Favicon
+ * Tom Moor, http://tommoor.com
+ * Copyright (c) 2012 Tom Moor
+ * MIT Licensed
+ * @version 0.5
+*/
+
+(function(){
+
+	var Tinycon = {};
+	var currentFavicon = null;
+	var originalFavicon = null;
+	var originalTitle = document.title;
+	var faviconImage = null;
+	var canvas = null;
+	var options = {};
+	var defaults = {
+		width: 7,
+		height: 9,
+		font: '10px arial',
+		colour: '#ffffff',
+		background: '#F03D25',
+		fallback: true,
+		abbreviate: true
+	};
+
+	var ua = (function () {
+		var agent = navigator.userAgent.toLowerCase();
+		// New function has access to 'agent' via closure
+		return function (browser) {
+			return agent.indexOf(browser) !== -1;
+		};
+	}());
+
+	var browser = {
+		ie: ua('msie'),
+		chrome: ua('chrome'),
+		webkit: ua('chrome') || ua('safari'),
+		safari: ua('safari') && !ua('chrome'),
+		mozilla: ua('mozilla') && !ua('chrome') && !ua('safari')
+	};
+
+	// private methods
+	var getFaviconTag = function(){
+
+		var links = document.getElementsByTagName('link');
+
+		for(var i=0, len=links.length; i < len; i++) {
+			if ((links[i].getAttribute('rel') || '').match(/\bicon\b/)) {
+				return links[i];
+			}
+		}
+
+		return false;
+	};
+
+	var removeFaviconTag = function(){
+
+		var links = document.getElementsByTagName('link');
+		var head = document.getElementsByTagName('head')[0];
+
+		for(var i=0, len=links.length; i < len; i++) {
+			var exists = (typeof(links[i]) !== 'undefined');
+			if (exists && (links[i].getAttribute('rel') || '').match(/\bicon\b/)) {
+				head.removeChild(links[i]);
+			}
+		}
+	};
+
+	var getCurrentFavicon = function(){
+
+		if (!originalFavicon || !currentFavicon) {
+			var tag = getFaviconTag();
+			originalFavicon = currentFavicon = tag ? tag.getAttribute('href') : '/favicon.ico';
+		}
+
+		return currentFavicon;
+	};
+
+	var getCanvas = function (){
+
+		if (!canvas) {
+			canvas = document.createElement("canvas");
+			canvas.width = 16;
+			canvas.height = 16;
+		}
+
+		return canvas;
+	};
+
+	var setFaviconTag = function(url){
+		removeFaviconTag();
+
+		var link = document.createElement('link');
+		link.type = 'image/x-icon';
+		link.rel = 'icon';
+		link.href = url;
+		document.getElementsByTagName('head')[0].appendChild(link);
+	};
+
+	var log = function(message){
+		if (window.console) window.console.log(message);
+	};
+
+	var drawFavicon = function(label, colour) {
+
+		// fallback to updating the browser title if unsupported
+		if (!getCanvas().getContext || browser.ie || browser.safari || options.fallback === 'force') {
+			return updateTitle(label);
+		}
+
+		var context = getCanvas().getContext("2d");
+		var colour = colour || '#000000';
+		var src = getCurrentFavicon();
+
+		faviconImage = new Image();
+		faviconImage.onload = function() {
+
+			// clear canvas
+			context.clearRect(0, 0, 16, 16);
+
+			// draw original favicon
+			context.drawImage(faviconImage, 0, 0, faviconImage.width, faviconImage.height, 0, 0, 16, 16);
+
+			// draw bubble over the top
+			if ((label + '').length > 0) drawBubble(context, label, colour);
+
+			// refresh tag in page
+			refreshFavicon();
+		};
+
+		// allow cross origin resource requests if the image is not a data:uri
+		// as detailed here: https://github.com/mrdoob/three.js/issues/1305
+		if (!src.match(/^data/)) {
+			faviconImage.crossOrigin = 'anonymous';
+		}
+
+		faviconImage.src = src;
+	};
+
+	var updateTitle = function(label) {
+
+		if (options.fallback) {
+			if ((label + '').length > 0) {
+				document.title = '(' + label + ') ' + originalTitle;
+			} else {
+				document.title = originalTitle;
+			}
+		}
+	};
+
+	var drawBubble = function(context, label, colour) {
+
+		// automatic abbreviation for long (>2 digits) numbers
+		if (typeof label == 'number' && label > 99 && options.abbreviate) {
+			label = abbreviateNumber(label);
+		}
+
+		// bubble needs to be larger for double digits
+		var len = (label + '').length-1;
+		var width = options.width + (6*len);
+		var w = 16-width;
+		var h = 16-options.height;
+
+		// webkit seems to render fonts lighter than firefox
+		context.font = (browser.webkit ? 'bold ' : '') + options.font;
+		context.fillStyle = options.background;
+		context.strokeStyle = options.background;
+		context.lineWidth = 1;
+
+		// bubble
+		context.fillRect(w,h,width-1,options.height);
+
+		// rounded left
+		context.beginPath();
+		context.moveTo(w-0.5,h+1);
+		context.lineTo(w-0.5,15);
+		context.stroke();
+
+		// rounded right
+		context.beginPath();
+		context.moveTo(15.5,h+1);
+		context.lineTo(15.5,15);
+		context.stroke();
+
+		// bottom shadow
+		context.beginPath();
+		context.strokeStyle = "rgba(0,0,0,0.3)";
+		context.moveTo(w,16);
+		context.lineTo(15,16);
+		context.stroke();
+
+		// label
+		context.fillStyle = options.colour;
+		context.textAlign = "right";
+		context.textBaseline = "top";
+
+		// unfortunately webkit/mozilla are a pixel different in text positioning
+		context.fillText(label, 15, browser.mozilla ? 7 : 6);
+	};
+
+	var refreshFavicon = function(){
+		// check support
+		if (!getCanvas().getContext) return;
+
+		setFaviconTag(getCanvas().toDataURL());
+	};
+
+	var abbreviateNumber = function(label) {
+		var metricPrefixes = [
+			['G', 1000000000],
+			['M',    1000000],
+			['k',       1000]
+		];
+
+		for(var i = 0; i < metricPrefixes.length; ++i) {
+			if (label >= metricPrefixes[i][1]) {
+				label = round(label / metricPrefixes[i][1]) + metricPrefixes[i][0];
+				break;
+			}
+		}
+
+		return label;
+	};
+
+	var round = function (value, precision) {
+		var number = new Number(value);
+		return number.toFixed(precision);
+	};
+
+	// public methods
+	Tinycon.setOptions = function(custom){
+		options = {};
+
+		for(var key in defaults){
+			options[key] = custom.hasOwnProperty(key) ? custom[key] : defaults[key];
+		}
+		return this;
+	};
+
+	Tinycon.setImage = function(url){
+		currentFavicon = url;
+		refreshFavicon();
+		return this;
+	};
+
+	Tinycon.setBubble = function(label, colour) {
+		label = label || '';
+		drawFavicon(label, colour);
+		return this;
+	};
+
+	Tinycon.reset = function(){
+		setFaviconTag(originalFavicon);
+	};
+
+	Tinycon.setOptions(defaults);
+	window.Tinycon = Tinycon;
 })();;

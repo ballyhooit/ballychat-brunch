@@ -186,13 +186,15 @@ window.require.register("controllers/header-controller", function(exports, requi
   
 });
 window.require.register("controllers/home-controller", function(exports, require, module) {
-  var Controller, HomeController, HomePageView,
+  var Controller, HomeController, HomePageView, SidebarView,
     __hasProp = {}.hasOwnProperty,
     __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
 
   Controller = require('controllers/base/controller');
 
   HomePageView = require('views/home-page-view');
+
+  SidebarView = require('views/sidebar-view');
 
   module.exports = HomeController = (function(_super) {
 
@@ -204,10 +206,11 @@ window.require.register("controllers/home-controller", function(exports, require
 
     HomeController.prototype.historyURL = 'home';
 
-    HomeController.prototype.title = 'Home';
+    HomeController.prototype.title = 'Ballychat';
 
     HomeController.prototype.index = function() {
-      return this.view = new HomePageView();
+      this.view = new HomePageView();
+      return this.sidebarView = new SidebarView();
     };
 
     return HomeController;
@@ -839,9 +842,7 @@ window.require.register("models/user", function(exports, require, module) {
       return User.__super__.constructor.apply(this, arguments);
     }
 
-    User.prototype.initialize = function() {
-      return console.log(this);
-    };
+    User.prototype.initialize = function() {};
 
     return User;
 
@@ -954,13 +955,35 @@ window.require.register("views/home-page-view", function(exports, require, modul
       return HomePageView.__super__.constructor.apply(this, arguments);
     }
 
-    HomePageView.prototype.autoRender = true;
+    HomePageView.prototype.className = 'content';
 
-    HomePageView.prototype.className = 'home-page';
+    HomePageView.prototype.id = 'chat-content-messages';
 
-    HomePageView.prototype.container = '#page-container';
+    HomePageView.prototype.container = '#chat-content';
 
     HomePageView.prototype.template = template;
+
+    HomePageView.prototype.initialize = function() {
+      var _this = this;
+      this.subscribeEvent('login', this.renderPostLogin);
+      return $(window).resize(function() {
+        return _this.resizeHandle();
+      });
+    };
+
+    HomePageView.prototype.renderPostLogin = function(data) {
+      this.render();
+      return this.resizeHandle();
+    };
+
+    HomePageView.prototype.resizeHandle = function() {
+      var chatHeight;
+      chatHeight = $(window).height() - $('header.navbar').height() - $('#chat-input').height() - 25;
+      $('#chat-container').height(chatHeight);
+      return $('.nano').nanoScroller().nanoScroller({
+        scroll: 'bottom'
+      });
+    };
 
     return HomePageView;
 
@@ -1056,6 +1079,42 @@ window.require.register("views/login_view", function(exports, require, module) {
   })(View);
   
 });
+window.require.register("views/sidebar-view", function(exports, require, module) {
+  var SidebarView, View, template,
+    __hasProp = {}.hasOwnProperty,
+    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
+
+  View = require('views/base/view');
+
+  template = require('views/templates/sidebar');
+
+  module.exports = SidebarView = (function(_super) {
+
+    __extends(SidebarView, _super);
+
+    function SidebarView() {
+      return SidebarView.__super__.constructor.apply(this, arguments);
+    }
+
+    SidebarView.prototype.className = 'sidebar';
+
+    SidebarView.prototype.container = '#chat-settings';
+
+    SidebarView.prototype.template = template;
+
+    SidebarView.prototype.initialize = function() {
+      return this.subscribeEvent('login', this.renderPostLogin);
+    };
+
+    SidebarView.prototype.renderPostLogin = function(data) {
+      return this.render();
+    };
+
+    return SidebarView;
+
+  })(View);
+  
+});
 window.require.register("views/templates/header", function(exports, require, module) {
   module.exports = Handlebars.template(function (Handlebars,depth0,helpers,partials,data) {
     helpers = helpers || Handlebars.helpers;
@@ -1067,10 +1126,10 @@ window.require.register("views/templates/header", function(exports, require, mod
 window.require.register("views/templates/home", function(exports, require, module) {
   module.exports = Handlebars.template(function (Handlebars,depth0,helpers,partials,data) {
     helpers = helpers || Handlebars.helpers;
-    
+    var buffer = "";
 
 
-    return "<a href=\"http://brunch.io/\">\n  <img src=\"http://brunch.io/images/brunch.png\" alt=\"Brunch\" />\n</a>\n";});
+    return buffer;});
 });
 window.require.register("views/templates/login", function(exports, require, module) {
   module.exports = Handlebars.template(function (Handlebars,depth0,helpers,partials,data) {
@@ -1079,4 +1138,12 @@ window.require.register("views/templates/login", function(exports, require, modu
 
 
     return "<a class=\"google\" href=\"#\">Login</a>";});
+});
+window.require.register("views/templates/sidebar", function(exports, require, module) {
+  module.exports = Handlebars.template(function (Handlebars,depth0,helpers,partials,data) {
+    helpers = helpers || Handlebars.helpers;
+    
+
+
+    return "<ul class=\"nav nav-tabs\" id=\"settings-tabs\">\n	<li class=\"active\"><a data-toggle=\"tab\" href='#users'><i class=\"icon-user\"></i></a></li>\n	<li><a data-toggle=\"tab\" href='#rooms'><i class=\"icon-home\"></i></a></li>\n	<li><a data-toggle=\"tab\" href='#settings'><i class=\"icon-pencil\"></i></a></li>\n</ul> \n<div class=\"tab-content\">\n	<div class=\"tab-pane active\" id=\"users\"></div>\n	<div class=\"tab-pane\" id=\"rooms\"><p>Rooms</p></div>\n	<div class=\"tab-pane\" id=\"settings\"><p>Settings</p></div>\n</div>";});
 });
