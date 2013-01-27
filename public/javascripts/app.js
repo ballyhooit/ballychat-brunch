@@ -279,7 +279,7 @@ window.require.register("controllers/session-controller", function(exports, requ
     };
 
     SessionController.prototype.createUser = function(userData) {
-      return mediator.user = new User(userData);
+      return this.user = mediator.user = new User(userData);
     };
 
     SessionController.prototype.getSession = function() {
@@ -320,7 +320,6 @@ window.require.register("controllers/session-controller", function(exports, requ
       this.disposeLoginView();
       session.id = session.userId;
       delete session.userId;
-      this.createUser(session);
       return this.publishLogin();
     };
 
@@ -337,17 +336,40 @@ window.require.register("controllers/session-controller", function(exports, requ
     SessionController.prototype.logout = function() {
       this.loginStatusDetermined = true;
       this.disposeUser();
+      localStorage.clear();
       this.serviceProviderName = null;
       this.showLoginView();
       return this.publishEvent('loginStatus', false);
     };
 
     SessionController.prototype.loginCallback = function(data) {
+      this.initSocket(data.accessToken);
       return data.provider.getUserInfo(this.createUser);
     };
 
     SessionController.prototype.userData = function(data) {
       return mediator.user.set(data);
+    };
+
+    SessionController.prototype.initSocket = function(data) {
+      var _this = this;
+      window.socket = io.connect('http://bc01.jit.su/?token=' + data, {
+        port: 80
+      });
+      window.socket.on('error', function(data) {
+        return console.log('Socket.IO Error', data);
+      });
+      return window.socket.on('connect', function(data) {
+        window.delivery = new Delivery(window.socket);
+        window.socket.emit('me:chat:init');
+        return document.getElementById("chat-input").ondrop = function(e) {
+          var file;
+          e.preventDefault();
+          file = e.dataTransfer.files[0];
+          console.log(file);
+          return delivery.send(file);
+        };
+      });
     };
 
     SessionController.prototype.disposeLoginView = function() {
@@ -359,6 +381,7 @@ window.require.register("controllers/session-controller", function(exports, requ
     };
 
     SessionController.prototype.disposeUser = function() {
+      console.log('SessionController#disposeUser');
       if (!mediator.user) {
         return;
       }
@@ -398,16 +421,17 @@ window.require.register("lib/services/google", function(exports, require, module
 
     __extends(Google, _super);
 
-    function Google() {
-      this.loadHandler = __bind(this.loadHandler, this);
-      return Google.__super__.constructor.apply(this, arguments);
-    }
-
     clientId = '723865775119.apps.googleusercontent.com';
 
-    scopes = 'https://www.googleapis.com/auth/userinfo.profile';
+    scopes = 'https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email';
 
     Google.prototype.name = 'google';
+
+    function Google() {
+      this.loadHandler = __bind(this.loadHandler, this);
+      Google.__super__.constructor.apply(this, arguments);
+      this.accessToken = localStorage.getItem('accessToken');
+    }
 
     Google.prototype.load = function() {
       if (this.state() === 'resolved' || this.loading) {
@@ -441,9 +465,11 @@ window.require.register("lib/services/google", function(exports, require, module
 
     Google.prototype.loginHandler = function(loginContext, authResponse) {
       if (authResponse) {
+        localStorage.setItem('accessToken', authResponse.access_token);
         this.publishEvent('loginSuccessful', {
           provider: this,
-          loginContext: loginContext
+          loginContext: loginContext,
+          accessToken: authResponse.access_token
         });
         return this.publishEvent('serviceProviderSession', {
           provider: this,
@@ -827,6 +853,26 @@ window.require.register("models/base/model", function(exports, require, module) 
   })(Chaplin.Model);
   
 });
+window.require.register("models/message", function(exports, require, module) {
+  var Message, Model,
+    __hasProp = {}.hasOwnProperty,
+    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
+
+  Model = require('models/base/model');
+
+  module.exports = Message = (function(_super) {
+
+    __extends(Message, _super);
+
+    function Message() {
+      return Message.__super__.constructor.apply(this, arguments);
+    }
+
+    return Message;
+
+  })(Model);
+  
+});
 window.require.register("models/user", function(exports, require, module) {
   var Model, User,
     __hasProp = {}.hasOwnProperty,
@@ -880,6 +926,42 @@ window.require.register("views/base/collection-view", function(exports, require,
   })(Chaplin.CollectionView);
   
 });
+window.require.register("views/base/socket-view", function(exports, require, module) {
+  var SocketView, View,
+    __hasProp = {}.hasOwnProperty,
+    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
+
+  View = require('views/base/view');
+
+  require('lib/view-helper');
+
+  module.exports = SocketView = (function(_super) {
+
+    __extends(SocketView, _super);
+
+    function SocketView() {
+      return SocketView.__super__.constructor.apply(this, arguments);
+    }
+
+    SocketView.prototype.socket = null;
+
+    SocketView.prototype.initialize = function() {
+      return SocketView.__super__.initialize.apply(this, arguments);
+    };
+
+    SocketView.prototype.delegateSocket = function(event, method) {
+      return window.socket.on(event, method);
+    };
+
+    SocketView.prototype.emitSocket = function(event, data) {
+      return window.socket.emit(event, data);
+    };
+
+    return SocketView;
+
+  })(View);
+  
+});
 window.require.register("views/base/view", function(exports, require, module) {
   var Chaplin, View,
     __hasProp = {}.hasOwnProperty,
@@ -904,6 +986,92 @@ window.require.register("views/base/view", function(exports, require, module) {
     return View;
 
   })(Chaplin.View);
+  
+});
+window.require.register("views/chat/input-view", function(exports, require, module) {
+  var ChatInputView, View, template,
+    __hasProp = {}.hasOwnProperty,
+    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
+
+  View = require('views/base/socket-view');
+
+  template = require('views/templates/chat/input');
+
+  module.exports = ChatInputView = (function(_super) {
+
+    __extends(ChatInputView, _super);
+
+    function ChatInputView() {
+      return ChatInputView.__super__.constructor.apply(this, arguments);
+    }
+
+    ChatInputView.prototype.template = template;
+
+    ChatInputView.prototype.tagName = 'section';
+
+    ChatInputView.prototype.id = 'chat-input';
+
+    ChatInputView.prototype.className = 'container';
+
+    ChatInputView.prototype.container = 'body.container';
+
+    ChatInputView.prototype.initialize = function(options) {
+      ChatInputView.__super__.initialize.apply(this, arguments);
+      this.render();
+      return this.delegate('keypress', this.sendMessage);
+    };
+
+    ChatInputView.prototype.sendMessage = function(e) {
+      var currentRoom, inputText;
+      inputText = $('#chat-input textarea').val().trim();
+      currentRoom = $("body").data("current-room");
+      if (e.which === 13 && inputText) {
+        this.emitSocket("message:post", {
+          room: currentRoom,
+          msg: inputText
+        });
+        $('#chat-input textarea').val("");
+        return false;
+      }
+    };
+
+    return ChatInputView;
+
+  })(View);
+  
+});
+window.require.register("views/chat/message-view", function(exports, require, module) {
+  var ChatMessageView, View, template,
+    __hasProp = {}.hasOwnProperty,
+    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
+
+  View = require('views/base/view');
+
+  template = require('views/templates/chat/message');
+
+  module.exports = ChatMessageView = (function(_super) {
+
+    __extends(ChatMessageView, _super);
+
+    function ChatMessageView() {
+      return ChatMessageView.__super__.constructor.apply(this, arguments);
+    }
+
+    ChatMessageView.prototype.template = template;
+
+    ChatMessageView.prototype.container = '#chat-content-messages';
+
+    ChatMessageView.prototype.id = 'chat-message';
+
+    ChatMessageView.prototype.initialize = function(options) {
+      ChatMessageView.__super__.initialize.apply(this, arguments);
+      this.render();
+      return this.$el.find('time.timeago').timeago();
+    };
+
+    return ChatMessageView;
+
+  })(View);
   
 });
 window.require.register("views/header-view", function(exports, require, module) {
@@ -939,13 +1107,19 @@ window.require.register("views/header-view", function(exports, require, module) 
   
 });
 window.require.register("views/home-page-view", function(exports, require, module) {
-  var HomePageView, View, template,
+  var ChatInputView, ChatMessage, ChatMessageView, HomePageView, View, template,
     __hasProp = {}.hasOwnProperty,
     __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
 
   template = require('views/templates/home');
 
-  View = require('views/base/view');
+  View = require('views/base/socket-view');
+
+  ChatInputView = require('views/chat/input-view');
+
+  ChatMessageView = require('views/chat/message-view');
+
+  ChatMessage = require('models/message');
 
   module.exports = HomePageView = (function(_super) {
 
@@ -963,8 +1137,9 @@ window.require.register("views/home-page-view", function(exports, require, modul
 
     HomePageView.prototype.template = template;
 
-    HomePageView.prototype.initialize = function() {
+    HomePageView.prototype.initialize = function(options) {
       var _this = this;
+      HomePageView.__super__.initialize.apply(this, arguments);
       this.subscribeEvent('login', this.renderPostLogin);
       return $(window).resize(function() {
         return _this.resizeHandle();
@@ -973,6 +1148,10 @@ window.require.register("views/home-page-view", function(exports, require, modul
 
     HomePageView.prototype.renderPostLogin = function(data) {
       this.render();
+      this.subview('input-view', new ChatInputView());
+      this.subview('input-view').render();
+      this.delegateSocket('message:get', this.newMessage);
+      this.delegateSocket('chat:init', this.setRoom);
       return this.resizeHandle();
     };
 
@@ -983,6 +1162,21 @@ window.require.register("views/home-page-view", function(exports, require, modul
       return $('.nano').nanoScroller().nanoScroller({
         scroll: 'bottom'
       });
+    };
+
+    HomePageView.prototype.newMessage = function(data) {
+      var MessageView, message;
+      message = new ChatMessage(data);
+      MessageView = new ChatMessageView({
+        model: message
+      });
+      return $('.nano').nanoScroller().nanoScroller({
+        scroll: 'bottom'
+      });
+    };
+
+    HomePageView.prototype.setRoom = function(data) {
+      return $('body').data('current-room', 'home');
     };
 
     return HomePageView;
@@ -1080,13 +1274,17 @@ window.require.register("views/login_view", function(exports, require, module) {
   
 });
 window.require.register("views/sidebar-view", function(exports, require, module) {
-  var SidebarView, View, template,
+  var SidebarContentView, SidebarHeaderView, SidebarView, View, template,
     __hasProp = {}.hasOwnProperty,
     __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
 
   View = require('views/base/view');
 
   template = require('views/templates/sidebar');
+
+  SidebarHeaderView = require('views/sidebar/header-view');
+
+  SidebarContentView = require('views/sidebar/content-view');
 
   module.exports = SidebarView = (function(_super) {
 
@@ -1102,18 +1300,183 @@ window.require.register("views/sidebar-view", function(exports, require, module)
 
     SidebarView.prototype.template = template;
 
-    SidebarView.prototype.initialize = function() {
+    SidebarView.prototype.initialize = function(options) {
+      SidebarView.__super__.initialize.apply(this, arguments);
       return this.subscribeEvent('login', this.renderPostLogin);
     };
 
     SidebarView.prototype.renderPostLogin = function(data) {
-      return this.render();
+      this.render();
+      this.subview('header', new SidebarHeaderView());
+      this.subview('content', new SidebarContentView());
+      this.subview('header').render();
+      return this.subview('content').render();
     };
 
     return SidebarView;
 
   })(View);
   
+});
+window.require.register("views/sidebar/content-view", function(exports, require, module) {
+  var SidebarContentView, View, template,
+    __hasProp = {}.hasOwnProperty,
+    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
+
+  View = require('views/base/socket-view');
+
+  template = require('views/templates/sidebar/content');
+
+  module.exports = SidebarContentView = (function(_super) {
+
+    __extends(SidebarContentView, _super);
+
+    function SidebarContentView() {
+      return SidebarContentView.__super__.constructor.apply(this, arguments);
+    }
+
+    SidebarContentView.prototype.template = template;
+
+    SidebarContentView.prototype.tagName = 'div';
+
+    SidebarContentView.prototype.className = 'tab-content';
+
+    SidebarContentView.prototype.container = 'div.sidebar';
+
+    SidebarContentView.prototype.initialize = function(options) {
+      this.socket = window.socket;
+      this.delegate('click', 'ul#room-list li', this.changeRooms);
+      this.delegateSocket('chat:init', this.chatInit);
+      this.delegateSocket('user:get', this.addUser);
+      this.delegateSocket('user:delete', this.removeUser);
+      this.delegateSocket('room:get', this.addRoom);
+      return SidebarContentView.__super__.initialize.apply(this, arguments);
+    };
+
+    SidebarContentView.prototype.changeRooms = function(e) {
+      var room;
+      room = $(e.target).data("room");
+      this.emitSocket("room:join", {
+        room: room
+      });
+      return $("body").data("current-room", room);
+    };
+
+    SidebarContentView.prototype.chatInit = function(data) {
+      var i, _results;
+      $("ul#room-list").empty();
+      $("#users").empty();
+      i = 0;
+      while (i < data.rooms.length) {
+        $("ul#room-list").append('<li class="room"><a href="#" data-room="' + data.rooms[i] + '">' + data.rooms[i] + '</a></li>');
+        i++;
+      }
+      i = 0;
+      _results = [];
+      while (i < data.users.length) {
+        $("#users").append('<div id="user" data-user="' + data.users[i] + '"><p>' + data.users[i] + '</p></div>');
+        _results.push(i++);
+      }
+      return _results;
+    };
+
+    SidebarContentView.prototype.addUser = function(data) {
+      var users;
+      users = $("#users").find("[data-user='" + data.user + "']");
+      if (users.length === 0) {
+        return $('#users').append('<div id="user" data-user="' + data.user + '"><p>' + data.user + '</p></div>');
+      }
+    };
+
+    SidebarContentView.prototype.removeUser = function(data) {
+      var users;
+      users = $("#users").find("[data-user='" + data.user + "']");
+      if (users.length === 1) {
+        return users.remove();
+      }
+    };
+
+    SidebarContentView.prototype.addRoom = function(data) {
+      var rooms;
+      rooms = $('ul#room-list').find("[data-room='" + data.room + "']");
+      if (rooms.length === 0) {
+        return $("ul#room-list").append('<li class="room"><a href="#" data-room="' + data.room + '">' + data.room + '</a></li>');
+      }
+    };
+
+    return SidebarContentView;
+
+  })(View);
+  
+});
+window.require.register("views/sidebar/header-view", function(exports, require, module) {
+  var SidebarHeaderView, View, template,
+    __hasProp = {}.hasOwnProperty,
+    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
+
+  View = require('views/base/socket-view');
+
+  template = require('views/templates/sidebar/header');
+
+  module.exports = SidebarHeaderView = (function(_super) {
+
+    __extends(SidebarHeaderView, _super);
+
+    function SidebarHeaderView() {
+      return SidebarHeaderView.__super__.constructor.apply(this, arguments);
+    }
+
+    SidebarHeaderView.prototype.template = template;
+
+    SidebarHeaderView.prototype.tagName = 'ul';
+
+    SidebarHeaderView.prototype.className = 'nav nav-tabs';
+
+    SidebarHeaderView.prototype.id = 'settings-tabs';
+
+    SidebarHeaderView.prototype.container = 'div.sidebar';
+
+    SidebarHeaderView.prototype.initialize = function(options) {
+      return SidebarHeaderView.__super__.initialize.apply(this, arguments);
+    };
+
+    return SidebarHeaderView;
+
+  })(View);
+  
+});
+window.require.register("views/templates/chat/input", function(exports, require, module) {
+  module.exports = Handlebars.template(function (Handlebars,depth0,helpers,partials,data) {
+    helpers = helpers || Handlebars.helpers;
+    
+
+
+    return "<textarea type=\"text\" placeholder=\"Enter a message....\" rows=\"2\"></textarea>";});
+});
+window.require.register("views/templates/chat/message", function(exports, require, module) {
+  module.exports = Handlebars.template(function (Handlebars,depth0,helpers,partials,data) {
+    helpers = helpers || Handlebars.helpers;
+    var buffer = "", stack1, foundHelper, functionType="function", escapeExpression=this.escapeExpression;
+
+
+    buffer += "<p><strong>";
+    foundHelper = helpers.nickname;
+    if (foundHelper) { stack1 = foundHelper.call(depth0, {hash:{}}); }
+    else { stack1 = depth0.nickname; stack1 = typeof stack1 === functionType ? stack1() : stack1; }
+    buffer += escapeExpression(stack1) + "</strong>: ";
+    foundHelper = helpers.msg;
+    if (foundHelper) { stack1 = foundHelper.call(depth0, {hash:{}}); }
+    else { stack1 = depth0.msg; stack1 = typeof stack1 === functionType ? stack1() : stack1; }
+    buffer += escapeExpression(stack1) + "</p><time class=\"timeago\" datetime=\"";
+    foundHelper = helpers.messageTime;
+    if (foundHelper) { stack1 = foundHelper.call(depth0, {hash:{}}); }
+    else { stack1 = depth0.messageTime; stack1 = typeof stack1 === functionType ? stack1() : stack1; }
+    buffer += escapeExpression(stack1) + "\">";
+    foundHelper = helpers.messageTime;
+    if (foundHelper) { stack1 = foundHelper.call(depth0, {hash:{}}); }
+    else { stack1 = depth0.messageTime; stack1 = typeof stack1 === functionType ? stack1() : stack1; }
+    buffer += escapeExpression(stack1) + "</time>";
+    return buffer;});
 });
 window.require.register("views/templates/header", function(exports, require, module) {
   module.exports = Handlebars.template(function (Handlebars,depth0,helpers,partials,data) {
@@ -1142,8 +1505,24 @@ window.require.register("views/templates/login", function(exports, require, modu
 window.require.register("views/templates/sidebar", function(exports, require, module) {
   module.exports = Handlebars.template(function (Handlebars,depth0,helpers,partials,data) {
     helpers = helpers || Handlebars.helpers;
+    var buffer = "";
+
+
+    return buffer;});
+});
+window.require.register("views/templates/sidebar/content", function(exports, require, module) {
+  module.exports = Handlebars.template(function (Handlebars,depth0,helpers,partials,data) {
+    helpers = helpers || Handlebars.helpers;
     
 
 
-    return "<ul class=\"nav nav-tabs\" id=\"settings-tabs\">\n	<li class=\"active\"><a data-toggle=\"tab\" href='#users'><i class=\"icon-user\"></i></a></li>\n	<li><a data-toggle=\"tab\" href='#rooms'><i class=\"icon-home\"></i></a></li>\n	<li><a data-toggle=\"tab\" href='#settings'><i class=\"icon-pencil\"></i></a></li>\n</ul> \n<div class=\"tab-content\">\n	<div class=\"tab-pane active\" id=\"users\"></div>\n	<div class=\"tab-pane\" id=\"rooms\"><p>Rooms</p></div>\n	<div class=\"tab-pane\" id=\"settings\"><p>Settings</p></div>\n</div>";});
+    return "<div class=\"tab-pane active\" id=\"users\"></div>\n<div class=\"tab-pane\" id=\"rooms\"><ul id=\"room-list\"></ul></div>\n<div class=\"tab-pane\" id=\"settings\"><p>Settings</p></div>";});
+});
+window.require.register("views/templates/sidebar/header", function(exports, require, module) {
+  module.exports = Handlebars.template(function (Handlebars,depth0,helpers,partials,data) {
+    helpers = helpers || Handlebars.helpers;
+    
+
+
+    return "<li class=\"active\"><a data-toggle=\"tab\" href='#users'><i class=\"icon-user\"></i></a></li>\n<li><a data-toggle=\"tab\" href='#rooms'><i class=\"icon-home\"></i></a></li>\n<li><a data-toggle=\"tab\" href='#settings'><i class=\"icon-pencil\"></i></a></li>";});
 });

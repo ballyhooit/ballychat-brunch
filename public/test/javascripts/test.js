@@ -79,6 +79,18 @@
   globals.require.brunch = true;
 })();
 
+window.require.register("test/models/message-test", function(exports, require, module) {
+  var Message;
+
+  Message = require('models/message');
+
+  describe('Message', function() {
+    return beforeEach(function() {
+      return this.model = new Message();
+    });
+  });
+  
+});
 window.require.register("test/test-helpers", function(exports, require, module) {
   var chai, sinonChai;
 
@@ -92,6 +104,30 @@ window.require.register("test/test-helpers", function(exports, require, module) 
     expect: chai.expect,
     sinon: require('sinon')
   };
+  
+});
+window.require.register("test/views/chat/input-view-test", function(exports, require, module) {
+  var inputView;
+
+  Chat / (inputView = require('views/chat/input-view'));
+
+  describe('Chat/inputView', function() {
+    return beforeEach(function() {
+      return this.view = new Chat / inputView();
+    });
+  });
+  
+});
+window.require.register("test/views/chat/message-view-test", function(exports, require, module) {
+  var messageView;
+
+  Chat / (messageView = require('views/chat/message-view'));
+
+  describe('Chat/messageView', function() {
+    return beforeEach(function() {
+      return this.view = new Chat / messageView();
+    });
+  });
   
 });
 window.require.register("test/views/header-view-test", function(exports, require, module) {
@@ -165,12 +201,35 @@ window.require.register("test/views/sidebar-view-test", function(exports, requir
   });
   
 });
-var hasFilterer = window.brunch && window.brunch.test && window.brunch.test.filterer;
-var valid = hasFilterer ? window.brunch.test.filterer('test/views/header-view-test') : true;
-if (valid) window.require('test/views/header-view-test');
-var hasFilterer = window.brunch && window.brunch.test && window.brunch.test.filterer;
-var valid = hasFilterer ? window.brunch.test.filterer('test/views/home-page-view-test') : true;
-if (valid) window.require('test/views/home-page-view-test');
-var hasFilterer = window.brunch && window.brunch.test && window.brunch.test.filterer;
-var valid = hasFilterer ? window.brunch.test.filterer('test/views/sidebar-view-test') : true;
-if (valid) window.require('test/views/sidebar-view-test');
+window.require.register("test/views/sidebar/content-view-test", function(exports, require, module) {
+  var contentView;
+
+  Sidebar / (contentView = require('views/sidebar/content-view'));
+
+  describe('Sidebar/contentView', function() {
+    return beforeEach(function() {
+      return this.view = new Sidebar / contentView();
+    });
+  });
+  
+});
+window.require.register("test/views/sidebar/header-view-test", function(exports, require, module) {
+  var headerView;
+
+  Sidebar / (headerView = require('views/sidebar/header-view'));
+
+  describe('Sidebar/headerView', function() {
+    return beforeEach(function() {
+      return this.view = new Sidebar / headerView();
+    });
+  });
+  
+});
+window.require('test/models/message-test');
+window.require('test/views/chat/input-view-test');
+window.require('test/views/chat/message-view-test');
+window.require('test/views/header-view-test');
+window.require('test/views/home-page-view-test');
+window.require('test/views/sidebar-view-test');
+window.require('test/views/sidebar/content-view-test');
+window.require('test/views/sidebar/header-view-test');

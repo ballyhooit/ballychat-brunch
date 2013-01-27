@@ -14,9 +14,13 @@ module.exports = class Google extends ServiceProvider
   # The permissions we’re asking for. This is a space-separated list of URLs.
   # See https://developers.google.com/accounts/docs/OAuth2Login#scopeparameter
   # and the individual Google API documentations
-  scopes = 'https://www.googleapis.com/auth/userinfo.profile'
+  scopes = 'https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email'
 
   name: 'google'
+
+  constructor: ->
+    super
+    @accessToken = localStorage.getItem 'accessToken'
 
   load: ->
     return if @state() is 'resolved' or @loading
@@ -49,19 +53,21 @@ module.exports = class Google extends ServiceProvider
 
   loginHandler: (loginContext, authResponse) ->
     if authResponse
+      localStorage.setItem 'accessToken', authResponse.access_token
       # Publish successful login
-      @publishEvent 'loginSuccessful', {provider: this, loginContext}
+      @publishEvent 'loginSuccessful', {provider: this, loginContext, accessToken: authResponse.access_token}
 
       # Publish the session
-      @publishEvent 'serviceProviderSession',
-        provider: this
+      @publishEvent 'serviceProviderSession', {
+        provider: this,
         accessToken: authResponse.access_token
+      }
 
     else
       @publishEvent 'loginFail', {provider: this, loginContext}
 
   getLoginStatus: (callback) ->
-    gapi.auth.authorize { client_id: clientId, scope: scopes, immediate: true }, callback
+      gapi.auth.authorize { client_id: clientId, scope: scopes, immediate: true }, callback
 
   # TODO
   getUserInfo: (callback) ->

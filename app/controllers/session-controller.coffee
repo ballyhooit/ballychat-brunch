@@ -51,7 +51,7 @@ module.exports = class SessionController extends Controller
   # Instantiate the user with the given data
   createUser: (userData) ->
     #console.log 'SessionController#createUser', userData
-    mediator.user = new User userData
+    @user = mediator.user = new User userData
 
   # Try to get an existing session from one of the login providers
   getSession: ->
@@ -97,7 +97,6 @@ module.exports = class SessionController extends Controller
     # Transform session into user attributes and create a user
     session.id = session.userId
     delete session.userId
-    @createUser session
 
     @publishLogin()
 
@@ -123,6 +122,7 @@ module.exports = class SessionController extends Controller
 
     @disposeUser()
 
+    localStorage.clear()
     # Discard the login info
     @serviceProviderName = null
 
@@ -135,10 +135,26 @@ module.exports = class SessionController extends Controller
   # -------------------------------------
 
   loginCallback: (data) ->
+    @initSocket data.accessToken
     data.provider.getUserInfo @createUser
 
   userData: (data) ->
     mediator.user.set data
+
+  initSocket: (data) ->
+    window.socket = io.connect('http://bc01.jit.su/?token='+data, {port: 80})
+
+    window.socket.on 'error', (data) =>
+      console.log 'Socket.IO Error', data
+    window.socket.on 'connect', (data) =>
+      window.delivery = new Delivery(window.socket)
+      window.socket.emit 'me:chat:init'
+
+      document.getElementById("chat-input").ondrop = (e) ->
+        e.preventDefault()
+        file = e.dataTransfer.files[0]
+        console.log file
+        delivery.send file 
 
   # Disposal
   # --------
@@ -149,6 +165,7 @@ module.exports = class SessionController extends Controller
     @loginView = null
 
   disposeUser: ->
+    console.log 'SessionController#disposeUser'
     return unless mediator.user
     # Dispose the user model
     mediator.user.dispose()
